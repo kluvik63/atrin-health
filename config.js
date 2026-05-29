@@ -6,8 +6,8 @@
 
 window.APP_CONFIG = {
   /* ─── ОБЯЗАТЕЛЬНО: ваш Supabase ─── */
-  supabaseUrl:     'https://ВАШ-ПРОЕКТ.supabase.co',
-  supabaseAnonKey: 'ВАШ-PUBLIC-ANON-КЛЮЧ',
+  supabaseUrl:     'https://ljwstcozfptbneeibjln.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxqd3N0Y296ZnB0Ym5lZWliamxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5ODkwNTEsImV4cCI6MjA5NTU2NTA1MX0.0tqp0D9MzdDa40E5zuvhoVMZ8rHU-DOly5yKCrlxKsU',
 
   /* ─── ВЫБОР РЕЖИМА ─── */
   // 'cloud'  — с регистрацией и аналитикой (требует заполнить supabaseUrl/Key выше)
