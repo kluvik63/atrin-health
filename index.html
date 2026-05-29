@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>ATRIN LAB · Дневник здоровья</title>
+  <meta name="description" content="Личный дневник здоровья от ATRIN LAB" />
+
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1A3A2E" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ATRIN LAB" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="msapplication-TileColor" content="#1A3A2E" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" href="icon-192.png" type="image/png" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    html, body {
+      margin: 0; padding: 0; background: #F5F1E8; color: #1A3A2E;
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: contain;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    }
+    body { user-select: none; -webkit-user-select: none; }
+    input, textarea { user-select: text; -webkit-user-select: text; }
+    .pt-safe { padding-top: env(safe-area-inset-top, 0); }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
+    #splash {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; background: #F5F1E8; z-index: 9999;
+      transition: opacity 0.4s ease;
+    }
+    #splash.hide { opacity: 0; pointer-events: none; }
+    #splash .brand { font-family: Georgia, serif; font-weight: 700; font-size: 18px; color: #1A3A2E; letter-spacing: 0.05em; margin-top: 12px; }
+    #splash .sub { color: #C9A961; font-size: 9px; letter-spacing: 0.2em; margin-top: 2px; }
+  </style>
+
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "react":              "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime":  "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom":          "https://esm.sh/react-dom@18.3.1?deps=react@18.3.1",
+      "react-dom/client":   "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+      "lucide-react":       "https://esm.sh/lucide-react@0.378.0?external=react&deps=react@18.3.1",
+      "recharts":           "https://esm.sh/recharts@2.12.7?external=react,react-dom&deps=react@18.3.1,react-dom@18.3.1",
+      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4"
+    }
+  }
+  </script>
+
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+  <!-- Конфигурация (можно править без правки самого приложения) -->
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="splash">
+    <svg width="36" height="46" viewBox="0 0 20 26">
+      <path d="M10 1 C 3 6, 2 16, 10 25 C 18 16, 17 6, 10 1 Z" fill="#C9A961"/>
+      <path d="M10 3 L10 24" stroke="rgba(255,255,255,0.5)" stroke-width="0.6"/>
+    </svg>
+    <div class="brand">ATRIN LAB</div>
+    <div class="sub">PREMIUM WELLNESS</div>
+  </div>
+  <div id="root"></div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+  </script>
+
+  <script type="text/babel" data-type="module" data-presets="react">
+    import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      Leaf, Calendar, TrendingUp, User, Phone,
+      Droplet, Footprints, Moon, Smile, AlertCircle, Pill,
+      Plus, Minus, Check, ChevronRight, ChevronLeft,
+      Trash2, Sparkles, Award, Home, Flame, Zap, Cloud, CloudOff,
+      ShieldCheck, MapPin
+    } from 'lucide-react';
+    import {
+      LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip,
+      AreaChart, Area, BarChart, Bar, ReferenceLine
+    } from 'recharts';
+    import { createClient } from '@supabase/supabase-js';
+
+    /* ============= BRAND TOKENS ============= */
+    const C = {
+      bg: '#F5F1E8', bgSoft: '#FAF7EE', paper: '#FFFFFF',
+      dark: '#1A3A2E', darkSoft: '#2A4A3E',
+      gold: '#C9A961', goldSoft: '#E0CC95',
+      cream: '#F5EFE0', softGreen: '#E8EDE6',
+      line: '#E5E0D2',
+      text: '#1A3A2E', textSoft: '#5A6961', textMuted: '#8B9389',
+      good: '#6B9F6B', warn: '#D4A04B', bad: '#C97373',
+    };
+
+    /* ============= CONFIG ============= */
+    const CFG = window.APP_CONFIG || {};
+    const SUPPS  = CFG.supplements || [];
+    const HABITS = CFG.habits || [];
+
+    // Проверка: настроен ли cloud-режим
+    const cloudConfigured =
+      CFG.mode === 'cloud' &&
+      CFG.supabaseUrl && !CFG.supabaseUrl.includes('ВАШ-ПРОЕКТ') &&
+      CFG.supabaseAnonKey && !CFG.supabaseAnonKey.includes('ВАШ-PUBLIC');
+
+    const supabase = cloudConfigured
+      ? createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        })
+      : null;
+
+    /* ============= HELPERS ============= */
+    const todayISO = () => {
+      const d = new Date();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    };
+    const addDays = (iso, n) => {
+      const d = new Date(iso + 'T00:00:00');
+      d.setDate(d.getDate() + n);
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    };
+    const monthsRuShort = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+    const monthsRuGen = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const daysRu = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+    const formatNiceDate = (iso) => {
+      const d = new Date(iso + 'T00:00:00');
+      return `${daysRu[d.getDay()]}, ${d.getDate()} ${monthsRuGen[d.getMonth()]}`;
+    };
+    const formatShortDate = (iso) => {
+      const d = new Date(iso + 'T00:00:00');
+      return `${d.getDate()} ${monthsRuShort[d.getMonth()]}`;
+    };
+
+    /* Russian phone formatter */
+    const formatPhone = (value) => {
+      let d = String(value || '').replace(/\D/g, '');
+      if (d.startsWith('8')) d = '7' + d.slice(1);
+      if (d.length && !d.startsWith('7')) d = '7' + d;
+      d = d.slice(0, 11);
+      let r = '+7';
+      if (d.length > 1) r += ' (' + d.slice(1, 4);
+      if (d.length >= 4) r += ')';
+      if (d.length >= 5) r += ' ' + d.slice(4, 7);
+      if (d.length >= 8) r += '-' + d.slice(7, 9);
+      if (d.length >= 10) r += '-' + d.slice(9, 11);
+      return r;
+    };
+    const phoneE164 = (formatted) => {
+      const d = String(formatted || '').replace(/\D/g, '');
+      return d.length === 11 ? '+' + d : '';
+    };
+    const phoneValid = (formatted) => phoneE164(formatted).length === 12;
+
+    const blankEntry = (date) => ({
+      date, sleepHours: null, sleepQuality: 0, energy: 0, mood: 0, stress: 0,
+      water: 0, steps: null, supplements: [], habits: [], notes: '',
+    });
+
+    /* ============= STORAGE LAYER =============
+       Локально (localStorage) + облако (Supabase) одновременно.
+       Локальное сохранение мгновенное; облачное — в фоне.
+       Если сети нет — приложение работает, синхронизация позже. */
+
+    const LS_USER_ID = 'atrin.userId';
+    const LS_USER    = 'atrin.user';
+    const LS_ENTRIES = 'atrin.entries';
+
+    const cloudEnabled = () => !!supabase;
+
+    const trackEvent = async (userId, type, metadata = {}) => {
+      if (!cloudEnabled() || !userId) return;
+      try {
+        await supabase.from('events').insert({ user_id: userId, event_type: type, metadata });
+      } catch (_) { /* silent */ }
+    };
+
+    const cloudUpsertEntry = async (userId, date, entry) => {
+      if (!cloudEnabled() || !userId) return;
+      try {
+        await supabase.from('entries').upsert({
+          user_id: userId, date,
+          sleep_quality: entry.sleepQuality || null,
+          energy: entry.energy || null,
+          mood: entry.mood || null,
+          stress: entry.stress || null,
+          sleep_hours: entry.sleepHours || null,
+          water: entry.water || null,
+          steps: entry.steps || null,
+          supplements: entry.supplements || [],
+          habits: entry.habits || [],
+          notes: entry.notes || null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,date' });
+      } catch (e) { console.warn('cloud upsert failed:', e?.message); }
+    };
+
+    const cloudFetchAll = async (userId) => {
+      if (!cloudEnabled() || !userId) return null;
+      try {
+        const { data, error } = await supabase
+          .from('entries')
+          .select('*')
+          .eq('user_id', userId);
+        if (error) throw error;
+        const map = {};
+        (data || []).forEach((row) => {
+          map[row.date] = {
+            date: row.date,
+            sleepQuality: row.sleep_quality || 0,
+            energy: row.energy || 0,
+            mood: row.mood || 0,
+            stress: row.stress || 0,
+            sleepHours: row.sleep_hours,
+            water: row.water || 0,
+            steps: row.steps,
+            supplements: row.supplements || [],
+            habits: row.habits || [],
+            notes: row.notes || '',
+          };
+        });
+        return map;
+      } catch (e) {
+        console.warn('cloud fetch failed:', e?.message);
+        return null;
+      }
+    };
+
+    const cloudUpdateActive = async (userId) => {
+      if (!cloudEnabled() || !userId) return;
+      try {
+        await supabase.from('users')
+          .update({ last_active_at: new Date().toISOString() })
+          .eq('id', userId);
+      } catch (_) {}
+    };
+
+    /* ============= REGISTRATION ============= */
+    /* Возвращает {userId, profile} или null если пользователь ещё не регистрировался */
+    const loadLocalUser = () => {
+      try {
+        const id = localStorage.getItem(LS_USER_ID);
+        const userStr = localStorage.getItem(LS_USER);
+        if (id && userStr) return { id, profile: JSON.parse(userStr) };
+      } catch (_) {}
+      return null;
+    };
+
+    const saveLocalUser = (id, profile) => {
+      try {
+        localStorage.setItem(LS_USER_ID, id);
+        localStorage.setItem(LS_USER, JSON.stringify(profile));
+      } catch (_) {}
+    };
+
+    /* Регистрация: проверяем телефон в Supabase, либо создаём нового */
+    const registerOrLogin = async ({ phone, name, city }) => {
+      const phoneClean = phoneE164(phone);
+      if (!phoneClean) throw new Error('Введите корректный номер');
+
+      if (!cloudEnabled()) {
+        // Локальный режим: просто генерируем uuid и сохраняем
+        const id = crypto.randomUUID();
+        const profile = { phone: phoneClean, name, city };
+        saveLocalUser(id, profile);
+        return { id, profile };
+      }
+
+      // Проверяем, есть ли такой телефон
+      const { data: existing } = await supabase
+        .from('users')
+        .select('id, phone, name, city')
+        .eq('phone', phoneClean)
+        .maybeSingle();
+
+      if (existing) {
+        // Вход: возвращаем существующего пользователя
+        const profile = { phone: existing.phone, name: existing.name || name, city: existing.city || city };
+        saveLocalUser(existing.id, profile);
+        cloudUpdateActive(existing.id);
+        trackEvent(existing.id, 'app_login', { method: 'phone' });
+        return { id: existing.id, profile, isReturning: true };
+      }
+
+      // Регистрация нового
+      const { data: created, error } = await supabase
+        .from('users')
+        .insert({
+          phone: phoneClean,
+          name: name || null,
+          city: city || null,
+          consent_given_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const profile = { phone: created.phone, name: created.name, city: created.city };
+      saveLocalUser(created.id, profile);
+      trackEvent(created.id, 'app_signup', { city });
+      return { id: created.id, profile, isNew: true };
+    };
+
+    /* ============= APP DATA HOOK ============= */
+    function useAppData() {
+      const [loaded, setLoaded] = useState(false);
+      const [user, setUser] = useState(null); // {id, profile}
+      const [entries, setEntries] = useState({});
+      const [syncing, setSyncing] = useState(false);
+      const [online, setOnline] = useState(navigator.onLine);
+
+      // Local entries cache
+      const loadLocalEntries = () => {
+        try {
+          const s = localStorage.getItem(LS_ENTRIES);
+          return s ? JSON.parse(s) : {};
+        } catch (_) { return {}; }
+      };
+      const saveLocalEntries = (e) => {
+        try { localStorage.setItem(LS_ENTRIES, JSON.stringify(e)); } catch (_) {}
+      };
+
+      // Initial load
+      useEffect(() => {
+        (async () => {
+          const local = loadLocalUser();
+          const localE = loadLocalEntries();
+          setEntries(localE);
+
+          if (local) {
+            setUser(local);
+            // Hidemark splash
+            const sp = document.getElementById('splash');
+            if (sp) { sp.classList.add('hide'); setTimeout(() => sp.remove(), 500); }
+            setLoaded(true);
+
+            // Sync from cloud in background
+            if (cloudEnabled()) {
+              cloudUpdateActive(local.id);
+              trackEvent(local.id, 'app_open');
+              setSyncing(true);
+              const cloud = await cloudFetchAll(local.id);
+              if (cloud) {
+                // Merge: server wins for dates server has, local wins for dates only local has
+                const merged = { ...localE, ...cloud };
+                setEntries(merged);
+                saveLocalEntries(merged);
+              }
+              setSyncing(false);
+            }
+          } else {
+            // Not registered — show registration screen
+            const sp = document.getElementById('splash');
+            if (sp) { sp.classList.add('hide'); setTimeout(() => sp.remove(), 500); }
+            setLoaded(true);
+          }
+        })();
+      }, []);
+
+      // Track online/offline
+      useEffect(() => {
+        const onUp = () => setOnline(true);
+        const onDown = () => setOnline(false);
+        window.addEventListener('online', onUp);
+        window.addEventListener('offline', onDown);
+        return () => {
+          window.removeEventListener('online', onUp);
+          window.removeEventListener('offline', onDown);
+        };
+      }, []);
+
+      const updateEntry = useCallback(async (date, patch) => {
+        const next = { ...entries };
+        const wasEmpty = !entries[date] ||
+          (entries[date].sleepQuality === 0 && entries[date].energy === 0 &&
+           entries[date].mood === 0 && entries[date].stress === 0);
+        next[date] = { ...(entries[date] || blankEntry(date)), ...patch };
+        setEntries(next);
+        saveLocalEntries(next);
+
+        if (user?.id) {
+          cloudUpsertEntry(user.id, date, next[date]);
+          // Track significant event: first daily entry
+          const e = next[date];
+          const filled = (e.sleepQuality > 0) + (e.energy > 0) + (e.mood > 0) + (e.stress > 0);
+          if (wasEmpty && filled === 1) {
+            trackEvent(user.id, 'entry_started', { date });
+          }
+          if (filled === 4) {
+            trackEvent(user.id, 'entry_completed', { date });
+          }
+        }
+      }, [entries, user]);
+
+      const register = useCallback(async (formData) => {
+        const result = await registerOrLogin(formData);
+        setUser({ id: result.id, profile: result.profile });
+        // Fetch their cloud entries if returning user
+        if (result.isReturning && cloudEnabled()) {
+          const cloud = await cloudFetchAll(result.id);
+          if (cloud) {
+            setEntries(cloud);
+            saveLocalEntries(cloud);
+          }
+        }
+        return result;
+      }, []);
+
+      const updateProfile = useCallback(async (patch) => {
+        if (!user) return;
+        const newProfile = { ...user.profile, ...patch };
+        setUser({ ...user, profile: newProfile });
+        saveLocalUser(user.id, newProfile);
+        if (cloudEnabled()) {
+          try {
+            await supabase.from('users').update({
+              name: newProfile.name || null,
+              city: newProfile.city || null,
+            }).eq('id', user.id);
+          } catch (_) {}
+        }
+      }, [user]);
+
+      const signOut = useCallback(async () => {
+        try {
+          localStorage.removeItem(LS_USER_ID);
+          localStorage.removeItem(LS_USER);
+          localStorage.removeItem(LS_ENTRIES);
+        } catch (_) {}
+        setUser(null);
+        setEntries({});
+      }, []);
+
+      const resetEntries = useCallback(async () => {
+        setEntries({});
+        saveLocalEntries({});
+        if (user?.id && cloudEnabled()) {
+          try { await supabase.from('entries').delete().eq('user_id', user.id); } catch (_) {}
+        }
+      }, [user]);
+
+      return {
+        loaded, user, entries, syncing, online,
+        register, updateEntry, updateProfile, signOut, resetEntries,
+      };
+    }
+
+    /* ============= UI COMPONENTS ============= */
+
+    const Leafmark = ({ size = 22, color = C.gold, className = '' }) => (
+      <svg width={size} height={size * 1.3} viewBox="0 0 20 26" className={className}>
+        <path d="M10 1 C 3 6, 2 16, 10 25 C 18 16, 17 6, 10 1 Z" fill={color}/>
+        <path d="M10 3 L10 24" stroke="rgba(255,255,255,0.5)" strokeWidth="0.6"/>
+      </svg>
+    );
+
+    /* ============= REGISTRATION SCREEN ============= */
+    const RegistrationScreen = ({ onSubmit }) => {
+      const [phone, setPhone] = useState('+7');
+      const [name, setName] = useState('');
+      const [city, setCity] = useState('');
+      const [consent, setConsent] = useState(false);
+      const [submitting, setSubmitting] = useState(false);
+      const [error, setError] = useState('');
+
+      const phoneOK = phoneValid(phone);
+      const canSubmit = phoneOK && consent && !submitting;
+
+      const handleSubmit = async () => {
+        if (!canSubmit) return;
+        setSubmitting(true);
+        setError('');
+        try {
+          await onSubmit({ phone, name: name.trim(), city: city.trim() });
+        } catch (e) {
+          setError(e.message || 'Не получилось. Попробуйте ещё раз.');
+          setSubmitting(false);
+        }
+      };
+
+      return (
+        <div style={{ background: C.bg, minHeight: '100vh' }} className="pt-safe pb-safe">
+          <div className="max-w-md mx-auto px-5 py-8">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <Leafmark size={32} color={C.gold} className="mx-auto mb-3" />
+              <div style={{ color: C.dark, fontFamily: 'Georgia, serif', fontWeight: 700, fontSize: 18, letterSpacing: '0.05em' }}>
+                {CFG.brandName || 'ATRIN LAB'}
+              </div>
+              <div style={{ color: C.gold, fontSize: 9, letterSpacing: '0.2em', marginTop: 2 }}>
+                {CFG.brandTagline || 'PREMIUM WELLNESS'}
+              </div>
+            </div>
+
+            {/* Welcome */}
+            <div className="mb-6 text-center">
+              <div style={{ fontFamily: 'Georgia, serif', fontSize: 26, fontWeight: 600, color: C.dark, marginBottom: 6 }}>
+                {CFG.welcomeTitle || 'Добро пожаловать'}
+              </div>
+              <div style={{ color: C.textSoft, fontSize: 14, fontStyle: 'italic' }}>
+                {CFG.welcomeSubtitle || 'Ваш персональный дневник здоровья'}
+              </div>
+            </div>
+
+            {/* Benefits */}
+            <div
+              className="rounded-2xl p-4 mb-6"
+              style={{ background: `linear-gradient(135deg, ${C.dark} 0%, ${C.darkSoft} 100%)`, color: C.gold }}
+            >
+              {(CFG.welcomeBenefits || []).map((b, i) => (
+                <div key={i} className="flex items-start gap-2 mb-2 last:mb-0" style={{ fontSize: 12.5 }}>
+                  <Check size={13} color={C.gold} className="mt-0.5 flex-shrink-0" />
+                  <span style={{ opacity: 0.95 }}>{b}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Form */}
+            <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+              <label style={{ color: C.dark, fontSize: 11, letterSpacing: '0.1em', fontWeight: 600 }} className="uppercase block mb-1.5">
+                Телефон <span style={{ color: C.gold }}>*</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <Phone size={14} color={C.textMuted} className="flex-shrink-0" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
+                  placeholder="+7 (___) ___-__-__"
+                  style={{
+                    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                    fontSize: 16, fontFamily: 'Georgia, serif', fontWeight: 600, color: C.dark, padding: '4px 0',
+                  }}
+                />
+                {phoneOK && <Check size={16} color={C.good} />}
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+              <label style={{ color: C.dark, fontSize: 11, letterSpacing: '0.1em', fontWeight: 600 }} className="uppercase block mb-1.5">
+                Имя <span style={{ color: C.textMuted, fontWeight: 400 }}>(необязательно)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <User size={14} color={C.textMuted} className="flex-shrink-0" />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Как к вам обращаться"
+                  style={{
+                    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                    fontSize: 15, color: C.dark, padding: '4px 0', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-4 mb-4" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+              <label style={{ color: C.dark, fontSize: 11, letterSpacing: '0.1em', fontWeight: 600 }} className="uppercase block mb-1.5">
+                Город <span style={{ color: C.textMuted, fontWeight: 400 }}>(необязательно)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <MapPin size={14} color={C.textMuted} className="flex-shrink-0" />
+                <input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder="Например, Тольятти"
+                  style={{
+                    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                    fontSize: 15, color: C.dark, padding: '4px 0', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Consent */}
+            <button
+              onClick={() => setConsent(!consent)}
+              className="w-full active:scale-[0.99] transition mb-3"
+              style={{
+                background: consent ? C.softGreen : C.paper,
+                border: `1px solid ${consent ? C.dark : C.line}`,
+                borderRadius: 14,
+                padding: '12px 14px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  width: 18, height: 18, borderRadius: 6,
+                  background: consent ? C.dark : 'transparent',
+                  border: `1.5px solid ${consent ? C.dark : C.line}`,
+                  flexShrink: 0, marginTop: 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {consent && <Check size={12} color={C.gold} strokeWidth={3} />}
+              </div>
+              <span style={{ color: C.text, fontSize: 12, lineHeight: 1.4 }}>
+                {CFG.consentText || 'Согласен на обработку персональных данных.'}
+              </span>
+            </button>
+
+            {error && (
+              <div className="rounded-xl p-3 mb-3 text-center" style={{ background: '#FCE5E5', color: C.bad, fontSize: 12 }}>
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="w-full active:scale-[0.99] transition"
+              style={{
+                background: canSubmit ? C.dark : C.line,
+                color: canSubmit ? C.gold : C.textMuted,
+                border: 'none', borderRadius: 16, padding: '16px',
+                fontSize: 14, fontWeight: 600, letterSpacing: '0.05em',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              {submitting ? 'Подождите…' : 'Начать'}
+              {!submitting && <ChevronRight size={16} />}
+            </button>
+
+            <div className="text-center mt-4" style={{ color: C.textMuted, fontSize: 10 }}>
+              <ShieldCheck size={11} className="inline mr-1" />
+              Данные хранятся защищённо и не передаются третьим лицам
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ============= APP HEADER ============= */
+    const BrandBar = ({ profile, syncing, online }) => (
+      <div className="px-5 pt-6 pb-3 pt-safe">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Leafmark size={18} color={C.gold} />
+            <div>
+              <div style={{ color: C.dark, fontFamily: 'Georgia, serif', fontWeight: 700, letterSpacing: '0.05em' }} className="text-base">
+                {CFG.brandName || 'ATRIN LAB'}
+              </div>
+              <div style={{ color: C.gold, fontSize: 9, letterSpacing: '0.2em' }}>
+                {CFG.brandTagline || 'PREMIUM WELLNESS'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {cloudEnabled() && (
+              <div title={online ? 'В сети' : 'Оффлайн — данные синхронизируются позже'}>
+                {online
+                  ? <Cloud size={13} color={syncing ? C.gold : C.textMuted} />
+                  : <CloudOff size={13} color={C.textMuted} />}
+              </div>
+            )}
+            <div className="text-right">
+              <div style={{ color: C.textSoft, fontSize: 11, letterSpacing: '0.05em' }} className="uppercase">
+                {profile?.name || 'Привет'}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ height: 1, background: C.gold, opacity: 0.4 }} className="mt-3" />
+      </div>
+    );
+
+    /* ============= SHARED COMPONENTS ============= */
+    const Scale = ({ value, onChange, inverted = false }) => {
+      const colorAt = (n) => {
+        const v = inverted ? 11 - n : n;
+        if (v <= 3) return C.bad;
+        if (v <= 6) return C.warn;
+        return C.good;
+      };
+      return (
+        <div className="flex items-center justify-between gap-1">
+          {[...Array(10)].map((_, i) => {
+            const n = i + 1;
+            const active = n <= value;
+            return (
+              <button key={n} onClick={() => onChange(value === n ? 0 : n)}
+                className="flex-1 flex items-center justify-center transition-all active:scale-90"
+                style={{ height: 36, borderRadius: 12 }}>
+                <span style={{
+                  display: 'block', width: '78%', height: '78%', borderRadius: 999,
+                  background: active ? colorAt(n) : 'transparent',
+                  border: `1.5px solid ${active ? colorAt(n) : C.line}`,
+                  transition: 'all 0.18s ease',
+                  boxShadow: active ? `0 1px 4px ${colorAt(n)}55` : 'none',
+                }} />
+              </button>
+            );
+          })}
+        </div>
+      );
+    };
+
+    const MetricCard = ({ icon: Icon, title, value, onChange, inverted, hint }) => (
+      <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}`, boxShadow: '0 1px 3px rgba(26,58,46,0.04)' }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center" style={{ width: 28, height: 28, borderRadius: 8, background: C.softGreen }}>
+              <Icon size={15} color={C.dark} />
+            </div>
+            <div style={{ color: C.dark, fontWeight: 600, fontSize: 14 }}>{title}</div>
+          </div>
+          <div style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, color: value > 0 ? C.dark : C.textMuted, minWidth: 32, textAlign: 'right' }}>
+            {value > 0 ? value : '—'}
+          </div>
+        </div>
+        <Scale value={value} onChange={onChange} inverted={inverted} />
+        {hint && (
+          <div className="flex justify-between mt-1.5" style={{ fontSize: 9, color: C.textMuted, letterSpacing: '0.05em' }}>
+            <span>{hint[0]}</span><span>{hint[1]}</span>
+          </div>
+        )}
+      </div>
+    );
+
+    const Stepper = ({ icon: Icon, title, value, onChange, step = 1, suffix = '', min = 0, max = 999 }) => (
+      <div className="rounded-2xl p-3 flex items-center gap-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center justify-center" style={{ width: 28, height: 28, borderRadius: 8, background: C.softGreen }}>
+          <Icon size={15} color={C.dark} />
+        </div>
+        <div className="flex-1">
+          <div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{title}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => onChange(Math.max(min, (value || 0) - step))}
+            className="flex items-center justify-center active:scale-90 transition"
+            style={{ width: 30, height: 30, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, color: C.dark }}>
+            <Minus size={14} />
+          </button>
+          <div style={{ fontFamily: 'Georgia, serif', fontWeight: 700, fontSize: 16, color: C.dark, minWidth: 50, textAlign: 'center' }}>
+            {value > 0 || value === 0 ? `${value}${suffix}` : '—'}
+          </div>
+          <button onClick={() => onChange(Math.min(max, (value || 0) + step))}
+            className="flex items-center justify-center active:scale-90 transition"
+            style={{ width: 30, height: 30, borderRadius: 10, background: C.dark, color: C.gold }}>
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+    );
+
+    const Chip = ({ label, active, onClick }) => (
+      <button onClick={onClick} className="active:scale-95 transition-all"
+        style={{
+          padding: '7px 14px', borderRadius: 999,
+          background: active ? C.dark : C.paper,
+          color: active ? C.gold : C.text,
+          border: `1px solid ${active ? C.dark : C.line}`,
+          fontSize: 12, fontWeight: 500,
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}>
+        {active && <Check size={11} />} {label}
+      </button>
+    );
+
+    function computeStreak(entries) {
+      let streak = 0; let cur = todayISO();
+      while (true) {
+        const e = entries[cur];
+        const filled = e && (e.sleepQuality > 0 || e.energy > 0 || e.mood > 0 || e.stress > 0);
+        if (!filled) break;
+        streak += 1; cur = addDays(cur, -1);
+      }
+      return streak;
+    }
+
+    const StreakBadge = ({ streak }) => (
+      <div className="rounded-2xl px-4 py-3 mb-4 flex items-center justify-between"
+        style={{ background: `linear-gradient(135deg, ${C.dark} 0%, ${C.darkSoft} 100%)`, color: C.gold, boxShadow: '0 4px 12px rgba(26,58,46,0.15)' }}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(201,169,97,0.18)' }}>
+            <Flame size={20} color={C.gold} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, letterSpacing: '0.2em', opacity: 0.7 }} className="uppercase">Серия дней</div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 700, lineHeight: 1 }}>
+              {streak}{' '}<span style={{ fontSize: 12, opacity: 0.7, fontWeight: 400 }}>
+                {streak === 1 ? 'день' : streak >= 2 && streak <= 4 ? 'дня' : 'дней'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <Leafmark size={26} color={C.gold} />
+      </div>
+    );
+
+    /* ============= TODAY TAB ============= */
+    const TodayTab = ({ entries, updateEntry }) => {
+      const today = todayISO();
+      const entry = entries[today] || blankEntry(today);
+      const streak = computeStreak(entries);
+      const niceDate = formatNiceDate(today);
+      const upd = (patch) => updateEntry(today, patch);
+      const toggleArr = (arr, id) => arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id];
+      const completion = useMemo(() => {
+        let f = 0;
+        if (entry.sleepQuality > 0) f++;
+        if (entry.energy > 0) f++;
+        if (entry.mood > 0) f++;
+        if (entry.stress > 0) f++;
+        return Math.round((f / 4) * 100);
+      }, [entry]);
+
+      return (
+        <div className="px-5 pb-4">
+          <div className="flex items-end justify-between mb-1">
+            <div>
+              <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.2em' }} className="uppercase">Сегодня</div>
+              <div style={{ fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 600, color: C.dark, lineHeight: 1.1 }}>
+                {niceDate.split(',')[1]?.trim()}
+              </div>
+              <div style={{ color: C.textSoft, fontSize: 13, fontStyle: 'italic' }}>
+                {niceDate.split(',')[0]}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div style={{ color: C.textMuted, fontSize: 10 }} className="uppercase tracking-wider">{completion}%</div>
+              <div style={{ width: 38, height: 38, borderRadius: 999, background: `conic-gradient(${C.gold} ${completion * 3.6}deg, ${C.line} 0deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 30, height: 30, borderRadius: 999, background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Check size={14} color={completion === 100 ? C.dark : C.textMuted} />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{ height: 1, background: C.line, margin: '14px 0' }} />
+          <StreakBadge streak={streak} />
+
+          <MetricCard icon={Moon} title="Качество сна" value={entry.sleepQuality} onChange={(v) => upd({ sleepQuality: v })} hint={['плохой','отличный']} />
+          <MetricCard icon={Zap} title="Энергия" value={entry.energy} onChange={(v) => upd({ energy: v })} hint={['нет сил','на максимуме']} />
+          <MetricCard icon={Smile} title="Настроение" value={entry.mood} onChange={(v) => upd({ mood: v })} hint={['плохое','отличное']} />
+          <MetricCard icon={AlertCircle} title="Стресс" value={entry.stress} onChange={(v) => upd({ stress: v })} inverted hint={['спокоен','высокий']} />
+
+          <div className="grid grid-cols-1 gap-2 mt-4 mb-4">
+            <Stepper icon={Moon} title="Часов сна" value={entry.sleepHours || 0} onChange={(v) => upd({ sleepHours: v })} step={0.5} suffix=" ч" min={0} max={14} />
+            <Stepper icon={Droplet} title="Стаканов воды" value={entry.water || 0} onChange={(v) => upd({ water: v })} step={1} min={0} max={20} />
+            <Stepper icon={Footprints} title="Шаги" value={entry.steps || 0} onChange={(v) => upd({ steps: v })} step={1000} min={0} max={50000} />
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center justify-center" style={{ width: 28, height: 28, borderRadius: 8, background: C.softGreen }}>
+                <Pill size={15} color={C.dark} />
+              </div>
+              <div style={{ color: C.dark, fontWeight: 600, fontSize: 14 }}>Добавки приняты</div>
+              <div className="ml-auto" style={{ color: C.textMuted, fontSize: 11 }}>{entry.supplements.length}/{SUPPS.length}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SUPPS.map(s => (
+                <Chip key={s.id} label={s.label} active={entry.supplements.includes(s.id)}
+                  onClick={() => upd({ supplements: toggleArr(entry.supplements, s.id) })} />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center justify-center" style={{ width: 28, height: 28, borderRadius: 8, background: C.softGreen }}>
+                <Sparkles size={15} color={C.dark} />
+              </div>
+              <div style={{ color: C.dark, fontWeight: 600, fontSize: 14 }}>Привычки сегодня</div>
+              <div className="ml-auto" style={{ color: C.textMuted, fontSize: 11 }}>{entry.habits.length}/{HABITS.length}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {HABITS.map(h => (
+                <Chip key={h.id} label={h.label} active={entry.habits.includes(h.id)}
+                  onClick={() => upd({ habits: toggleArr(entry.habits, h.id) })} />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-2" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div style={{ color: C.dark, fontWeight: 600, fontSize: 14, marginBottom: 8 }}>Заметка дня</div>
+            <textarea value={entry.notes || ''} onChange={(e) => upd({ notes: e.target.value })}
+              placeholder="Как прошёл день? Что чувствую?" rows={3}
+              style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: C.bgSoft, padding: 10, borderRadius: 12, fontSize: 13, color: C.text, fontFamily: 'inherit' }} />
+          </div>
+
+          <div className="text-center mt-3 mb-2" style={{ color: C.textMuted, fontSize: 11, fontStyle: 'italic' }}>
+            {cloudEnabled() ? 'Данные синхронизируются автоматически' : 'Данные сохраняются на этом устройстве'}
+          </div>
+        </div>
+      );
+    };
+
+    /* ============= TRENDS / HABITS / PROFILE — short versions ============= */
+    const StatCard = ({ icon: Icon, label, value, sub, accent = C.dark }) => (
+      <div className="rounded-2xl p-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-1.5 mb-1">
+          <Icon size={12} color={accent} />
+          <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
+        </div>
+        <div style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, color: accent, lineHeight: 1 }}>{value}</div>
+        {sub && <div style={{ color: C.textSoft, fontSize: 10, marginTop: 2 }}>{sub}</div>}
+      </div>
+    );
+
+    const TrendsTab = ({ entries }) => {
+      const last30 = useMemo(() => {
+        const days = [];
+        for (let i = 29; i >= 0; i--) {
+          const iso = addDays(todayISO(), -i);
+          const e = entries[iso] || blankEntry(iso);
+          days.push({
+            date: iso, d: new Date(iso + 'T00:00:00').getDate(),
+            energy: e.energy || null, mood: e.mood || null,
+            sleep: e.sleepQuality || null, stress: e.stress || null,
+            sleepHours: e.sleepHours || null,
+            suppsCount: e.supplements?.length || 0,
+          });
+        }
+        return days;
+      }, [entries]);
+
+      const filledDays = last30.filter(d => d.energy || d.mood || d.sleep || d.stress).length;
+      const avg = (key) => {
+        const v = last30.map(d => d[key]).filter(x => x !== null && x > 0);
+        return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+      };
+      const avgEnergy = avg('energy'), avgMood = avg('mood'), avgSleep = avg('sleep'), avgStress = avg('stress'), avgSleepH = avg('sleepHours');
+      const totalSuppSlots = last30.length * SUPPS.length;
+      const totalSuppsTaken = last30.reduce((s, d) => s + d.suppsCount, 0);
+      const suppAdherence = totalSuppSlots ? Math.round((totalSuppsTaken / totalSuppSlots) * 100) : 0;
+      const habitAdherence = useMemo(() => HABITS.map(h => {
+        const done = last30.filter(d => entries[d.date]?.habits?.includes(h.id)).length;
+        return { habit: h, done, total: last30.length, pct: Math.round((done / last30.length) * 100) };
+      }), [last30, entries]);
+      const last14 = last30.slice(-14);
+
+      return (
+        <div className="px-5 pb-4">
+          <div className="flex items-end justify-between mb-1">
+            <div>
+              <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.2em' }} className="uppercase">Тренды</div>
+              <div style={{ fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 600, color: C.dark, lineHeight: 1.1 }}>Последние 30 дней</div>
+            </div>
+            <div className="text-right" style={{ color: C.textSoft, fontSize: 11 }}>
+              {filledDays} {filledDays === 1 ? 'день' : filledDays >= 2 && filledDays <= 4 ? 'дня' : 'дней'}
+            </div>
+          </div>
+          <div style={{ height: 1, background: C.line, margin: '14px 0' }} />
+
+          {filledDays === 0 ? (
+            <div className="rounded-2xl p-6 text-center" style={{ background: C.paper, border: `1px dashed ${C.gold}` }}>
+              <Leafmark size={32} color={C.gold} className="mx-auto mb-3" />
+              <div style={{ fontFamily: 'Georgia, serif', fontSize: 18, color: C.dark, fontWeight: 600, marginBottom: 6 }}>
+                Здесь появятся ваши тренды
+              </div>
+              <div style={{ color: C.textSoft, fontSize: 13, lineHeight: 1.5 }}>
+                Заполните первый день — и вы увидите, как меняется самочувствие.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <StatCard icon={Zap} label="Энергия" value={avgEnergy ? avgEnergy.toFixed(1) : '—'} sub="в среднем" />
+                <StatCard icon={Smile} label="Настроение" value={avgMood ? avgMood.toFixed(1) : '—'} sub="в среднем" />
+                <StatCard icon={Moon} label="Сон" value={avgSleep ? avgSleep.toFixed(1) : '—'} sub={avgSleepH ? `≈ ${avgSleepH.toFixed(1)} ч` : '—'} />
+                <StatCard icon={AlertCircle} label="Стресс" value={avgStress ? avgStress.toFixed(1) : '—'} sub="в среднем" accent={avgStress > 6 ? C.bad : C.dark} />
+              </div>
+
+              <div className="rounded-2xl p-3 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div style={{ color: C.dark, fontSize: 13, fontWeight: 600 }}>Энергия и настроение</div>
+                  <div className="flex gap-3" style={{ fontSize: 10 }}>
+                    <span style={{ color: C.dark }}><span style={{ display: 'inline-block', width: 8, height: 8, background: C.dark, borderRadius: 99, marginRight: 4 }} />энергия</span>
+                    <span style={{ color: C.gold }}><span style={{ display: 'inline-block', width: 8, height: 8, background: C.gold, borderRadius: 99, marginRight: 4 }} />настроение</span>
+                  </div>
+                </div>
+                <div style={{ width: '100%', height: 160 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={last14} margin={{ top: 6, right: 4, bottom: 0, left: -28 }}>
+                      <XAxis dataKey="d" tick={{ fontSize: 9, fill: C.textMuted }} axisLine={{ stroke: C.line }} tickLine={false} interval={1} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 9, fill: C.textMuted }} axisLine={false} tickLine={false} ticks={[0, 5, 10]} />
+                      <Tooltip contentStyle={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 12, padding: '6px 10px' }}
+                        labelStyle={{ color: C.dark, fontWeight: 600 }}
+                        formatter={(v, name) => [v ?? '—', name === 'energy' ? 'Энергия' : 'Настроение']}
+                        labelFormatter={(d) => `${d} число`} />
+                      <ReferenceLine y={5} stroke={C.line} strokeDasharray="3 3" />
+                      <Line type="monotone" dataKey="energy" stroke={C.dark} strokeWidth={2.5} dot={{ r: 3, fill: C.dark }} connectNulls />
+                      <Line type="monotone" dataKey="mood" stroke={C.gold} strokeWidth={2.5} dot={{ r: 3, fill: C.gold }} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-3 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div style={{ color: C.dark, fontSize: 13, fontWeight: 600 }}>Сон и стресс</div>
+                </div>
+                <div style={{ width: '100%', height: 110 }}>
+                  <ResponsiveContainer>
+                    <AreaChart data={last14} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+                      <defs>
+                        <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={C.dark} stopOpacity={0.45} />
+                          <stop offset="100%" stopColor={C.dark} stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="d" tick={{ fontSize: 9, fill: C.textMuted }} axisLine={{ stroke: C.line }} tickLine={false} interval={1} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 9, fill: C.textMuted }} axisLine={false} tickLine={false} ticks={[0, 5, 10]} />
+                      <Tooltip contentStyle={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 12, padding: '6px 10px' }} labelFormatter={(d) => `${d} число`} />
+                      <Area type="monotone" dataKey="sleep" stroke={C.dark} strokeWidth={2} fill="url(#sleepGrad)" connectNulls name="Сон" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Pill size={14} color={C.dark} />
+                  <div style={{ color: C.dark, fontSize: 13, fontWeight: 600 }}>Приём добавок · 30 дней</div>
+                  <div className="ml-auto" style={{ color: C.gold, fontWeight: 700, fontFamily: 'Georgia, serif', fontSize: 18 }}>{suppAdherence}%</div>
+                </div>
+                <div style={{ height: 6, borderRadius: 99, background: C.line, position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${suppAdherence}%`, background: `linear-gradient(90deg, ${C.dark}, ${C.gold})`, borderRadius: 99 }} />
+                </div>
+                <div style={{ color: C.textSoft, fontSize: 11, marginTop: 6 }}>
+                  {totalSuppsTaken} приёмов из {totalSuppSlots} возможных
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={14} color={C.dark} />
+                  <div style={{ color: C.dark, fontSize: 13, fontWeight: 600 }}>Привычки · 30 дней</div>
+                </div>
+                <div className="space-y-2.5">
+                  {habitAdherence.map(h => (
+                    <div key={h.habit.id}>
+                      <div className="flex justify-between mb-1">
+                        <div style={{ color: C.text, fontSize: 12 }}>{h.habit.label}</div>
+                        <div style={{ color: C.textSoft, fontSize: 11 }}>
+                          <span style={{ color: C.dark, fontWeight: 600 }}>{h.done}</span>/{h.total}
+                          <span style={{ marginLeft: 6, color: C.gold, fontWeight: 600 }}>{h.pct}%</span>
+                        </div>
+                      </div>
+                      <div style={{ height: 4, borderRadius: 99, background: C.line, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${h.pct}%`, background: h.pct >= 70 ? C.good : h.pct >= 40 ? C.gold : C.bad, borderRadius: 99 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
+
+    const HabitsTab = ({ entries, updateEntry }) => {
+      const today = todayISO();
+      const entry = entries[today] || blankEntry(today);
+      const last30 = useMemo(() => {
+        const days = [];
+        for (let i = 29; i >= 0; i--) days.push(addDays(today, -i));
+        return days;
+      }, [today]);
+      const toggleHabit = (id) => {
+        const next = entry.habits.includes(id) ? entry.habits.filter(x => x !== id) : [...entry.habits, id];
+        updateEntry(today, { habits: next });
+      };
+      return (
+        <div className="px-5 pb-4">
+          <div>
+            <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.2em' }} className="uppercase">Привычки</div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 600, color: C.dark, lineHeight: 1.1 }}>Ваши ежедневные ритуалы</div>
+          </div>
+          <div style={{ height: 1, background: C.line, margin: '14px 0' }} />
+          <div className="rounded-2xl p-4 mb-4" style={{ background: `linear-gradient(135deg, ${C.dark} 0%, ${C.darkSoft} 100%)`, color: C.gold }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.2em', opacity: 0.7 }} className="uppercase mb-3">Сегодня · отметьте сделанное</div>
+            <div className="flex flex-wrap gap-2">
+              {HABITS.map(h => {
+                const active = entry.habits.includes(h.id);
+                return (
+                  <button key={h.id} onClick={() => toggleHabit(h.id)} className="active:scale-95 transition-all"
+                    style={{
+                      padding: '8px 14px', borderRadius: 999,
+                      background: active ? C.gold : 'rgba(255,255,255,0.08)',
+                      color: active ? C.dark : C.gold,
+                      border: `1px solid ${active ? C.gold : 'rgba(201,169,97,0.3)'}`,
+                      fontSize: 12, fontWeight: active ? 600 : 500,
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}>
+                    {active && <Check size={11} />} {h.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-2xl p-4" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div style={{ color: C.dark, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Последние 30 дней</div>
+            <div className="space-y-3">
+              {HABITS.map(h => {
+                const cells = last30.map(d => entries[d]?.habits?.includes(h.id));
+                const done = cells.filter(Boolean).length;
+                return (
+                  <div key={h.id}>
+                    <div className="flex justify-between mb-1.5">
+                      <div style={{ color: C.text, fontSize: 12, fontWeight: 500 }}>{h.label}</div>
+                      <div style={{ color: C.dark, fontSize: 11, fontWeight: 600 }}>{done}/30</div>
+                    </div>
+                    <div className="flex gap-[3px]">
+                      {cells.map((d, i) => (
+                        <div key={i} style={{ flex: 1, height: 14, borderRadius: 3, background: d ? C.dark : C.line }} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ProfileTab = ({ user, entries, updateProfile, signOut, resetEntries }) => {
+      const [confirmReset, setConfirmReset] = useState(false);
+      const [confirmSignOut, setConfirmSignOut] = useState(false);
+      const filledDays = Object.values(entries).filter(e => e.sleepQuality > 0 || e.energy > 0 || e.mood > 0 || e.stress > 0).length;
+
+      const exportJSON = () => {
+        const data = JSON.stringify({ user: user.profile, entries }, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `atrin-lab-health-${todayISO()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      return (
+        <div className="px-5 pb-4">
+          <div>
+            <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.2em' }} className="uppercase">Профиль</div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 600, color: C.dark, lineHeight: 1.1 }}>Ваши настройки</div>
+          </div>
+          <div style={{ height: 1, background: C.line, margin: '14px 0' }} />
+
+          {/* Phone display (read-only after registration) */}
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2 mb-1">
+              <Phone size={12} color={C.gold} />
+              <div style={{ color: C.gold, fontSize: 10, letterSpacing: '0.1em', fontWeight: 600 }} className="uppercase">Телефон</div>
+              <ShieldCheck size={11} color={C.textMuted} className="ml-auto" />
+            </div>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 600, color: C.dark }}>
+              {formatPhone(user.profile.phone || '')}
+            </div>
+          </div>
+
+          {/* Name */}
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.1em' }} className="uppercase mb-2">Имя</div>
+            <input
+              value={user.profile.name || ''}
+              onChange={(e) => updateProfile({ name: e.target.value })}
+              placeholder="Ваше имя"
+              style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: 0, fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 600, color: C.dark }}
+            />
+          </div>
+
+          {/* City */}
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+            <div style={{ color: C.textMuted, fontSize: 10, letterSpacing: '0.1em' }} className="uppercase mb-2">Город</div>
+            <input
+              value={user.profile.city || ''}
+              onChange={(e) => updateProfile({ city: e.target.value })}
+              placeholder="Не указан"
+              style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: 0, fontSize: 15, color: C.dark, fontFamily: 'inherit' }}
+            />
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <StatCard icon={Calendar} label="Дней" value={filledDays} />
+            <StatCard icon={Flame} label="Серия" value={computeStreak(entries)} accent={C.gold} />
+            <StatCard icon={Award} label="Записей" value={Object.keys(entries).length} />
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: `linear-gradient(135deg, ${C.dark} 0%, ${C.darkSoft} 100%)`, color: C.gold }}>
+            <div className="flex items-start gap-3">
+              <Leafmark size={24} color={C.gold} />
+              <div className="flex-1">
+                <div style={{ fontFamily: 'Georgia, serif', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Маленькие шаги каждый день</div>
+                <div style={{ opacity: 0.8, fontSize: 12, lineHeight: 1.5 }}>Создают большие изменения за год. Спасибо, что выбрали путь к себе.</div>
+              </div>
+            </div>
+          </div>
+
+          <button onClick={exportJSON} className="w-full active:scale-[0.99] transition mb-2"
+            style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 16, padding: '14px', color: C.dark, fontWeight: 500, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Award size={15} /> Выгрузить мои данные (JSON)
+          </button>
+
+          {!confirmReset ? (
+            <button onClick={() => setConfirmReset(true)} className="w-full active:scale-[0.99] transition mb-2"
+              style={{ background: 'transparent', border: `1px solid ${C.line}`, borderRadius: 16, padding: '14px', color: C.bad, fontWeight: 500, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Trash2 size={15} /> Очистить мои записи
+            </button>
+          ) : (
+            <div className="rounded-2xl p-4 mb-2" style={{ background: C.paper, border: `1px solid ${C.bad}` }}>
+              <div style={{ color: C.text, fontSize: 13, marginBottom: 10, textAlign: 'center' }}>Удалить все записи дневника? Профиль сохранится.</div>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmReset(false)} className="flex-1 active:scale-95 transition"
+                  style={{ background: C.softGreen, border: 'none', borderRadius: 12, padding: '12px', color: C.dark, fontWeight: 500, fontSize: 13 }}>Отмена</button>
+                <button onClick={() => { resetEntries(); setConfirmReset(false); }} className="flex-1 active:scale-95 transition"
+                  style={{ background: C.bad, border: 'none', borderRadius: 12, padding: '12px', color: '#fff', fontWeight: 500, fontSize: 13 }}>Удалить</button>
+              </div>
+            </div>
+          )}
+
+          {!confirmSignOut ? (
+            <button onClick={() => setConfirmSignOut(true)} className="w-full active:scale-[0.99] transition"
+              style={{ background: 'transparent', border: 'none', padding: '8px', color: C.textMuted, fontWeight: 500, fontSize: 12, textAlign: 'center' }}>
+              Выйти из аккаунта
+            </button>
+          ) : (
+            <div className="rounded-2xl p-4 mb-2" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+              <div style={{ color: C.text, fontSize: 13, marginBottom: 10, textAlign: 'center' }}>Выйти? Данные останутся в облаке, можно зайти снова по тому же номеру.</div>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmSignOut(false)} className="flex-1 active:scale-95 transition"
+                  style={{ background: C.softGreen, border: 'none', borderRadius: 12, padding: '12px', color: C.dark, fontWeight: 500, fontSize: 13 }}>Отмена</button>
+                <button onClick={() => { signOut(); setConfirmSignOut(false); }} className="flex-1 active:scale-95 transition"
+                  style={{ background: C.dark, border: 'none', borderRadius: 12, padding: '12px', color: C.gold, fontWeight: 500, fontSize: 13 }}>Выйти</button>
+              </div>
+            </div>
+          )}
+
+          <div className="text-center mt-6 mb-2">
+            <Leafmark size={18} color={C.gold} className="mx-auto mb-2" />
+            <div style={{ color: C.dark, fontFamily: 'Georgia, serif', fontWeight: 700, fontSize: 13, letterSpacing: '0.05em' }}>{CFG.brandName || 'ATRIN LAB'}</div>
+            <div style={{ color: C.gold, fontSize: 9, letterSpacing: '0.2em' }}>{CFG.brandTagline || 'PREMIUM WELLNESS'}</div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ============= NAV ============= */
+    const Nav = ({ tab, setTab }) => {
+      const items = [
+        { id: 'today',   icon: Home,        label: 'Сегодня' },
+        { id: 'trends',  icon: TrendingUp,  label: 'Тренды' },
+        { id: 'habits',  icon: Sparkles,    label: 'Привычки' },
+        { id: 'profile', icon: User,        label: 'Профиль' },
+      ];
+      return (
+        <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe"
+          style={{ background: C.paper, borderTop: `1px solid ${C.line}` }}>
+          <div className="max-w-md mx-auto px-2 py-2 flex justify-around">
+            {items.map(it => {
+              const active = tab === it.id;
+              const Icon = it.icon;
+              return (
+                <button key={it.id} onClick={() => setTab(it.id)}
+                  className="flex-1 flex flex-col items-center justify-center py-1.5 active:scale-95 transition-all"
+                  style={{ color: active ? C.dark : C.textMuted }}>
+                  <div style={{ width: 38, height: 28, borderRadius: 14, background: active ? C.softGreen : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                    <Icon size={18} strokeWidth={active ? 2.4 : 1.8} />
+                  </div>
+                  <div style={{ fontSize: 10, marginTop: 1, fontWeight: active ? 600 : 400, letterSpacing: '0.02em' }}>{it.label}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    /* ============= MAIN APP ============= */
+    function App() {
+      const d = useAppData();
+      const [tab, setTab] = useState('today');
+
+      if (!d.loaded) return null;
+
+      // Not registered yet — show registration screen
+      if (!d.user) {
+        return <RegistrationScreen onSubmit={d.register} />;
+      }
+
+      return (
+        <div style={{ background: C.bg, minHeight: '100vh', color: C.text }}>
+          <div className="max-w-md mx-auto" style={{ paddingBottom: 78 }}>
+            <BrandBar profile={d.user.profile} syncing={d.syncing} online={d.online} />
+            {tab === 'today'   && <TodayTab   entries={d.entries} updateEntry={d.updateEntry} />}
+            {tab === 'trends'  && <TrendsTab  entries={d.entries} />}
+            {tab === 'habits'  && <HabitsTab  entries={d.entries} updateEntry={d.updateEntry} />}
+            {tab === 'profile' && <ProfileTab user={d.user} entries={d.entries}
+              updateProfile={d.updateProfile} signOut={d.signOut} resetEntries={d.resetEntries} />}
+          </div>
+          <Nav tab={tab} setTab={setTab} />
+        </div>
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
